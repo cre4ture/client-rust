@@ -69,7 +69,7 @@ impl TimestampOracle {
         self.request_tx
             .send(request)
             .await
-            .map_err(|_| internal_err!("TimestampRequest channel is closed"))?;
+            .map_err(|e| internal_err!("TimestampRequest channel is closed / error: {:}", e))?;
         Ok(response.await?)
     }
 }
@@ -97,7 +97,21 @@ async fn run_tso(
     // let send_requests = rpc_sender.send_all(&mut request_stream);
     let mut responses = pd_client.tso(request_stream).await?.into_inner();
 
-    while let Some(Ok(resp)) = responses.next().await {
+    loop {
+        let resp = match responses.next().await {
+            Some(Ok(resp)) => resp,
+            Some(Err(status)) => {
+                info!("TSO stream terminated. Error status: {:?}", &status);
+                eprintln!("TSO stream terminated. Error status: {:?}", &status);
+                return Err(crate::common::Error::GrpcAPI(status));
+            },
+            None => {
+                info!("TSO stream terminated. OK.");
+                eprintln!("TSO stream terminated. OK.");
+                return Ok(());
+            }
+        };
+
         {
             let mut pending_requests = pending_requests.lock().await;
             allocate_timestamps(&resp, &mut pending_requests)?;
@@ -106,9 +120,6 @@ async fn run_tso(
         // Wake up the sending future blocked by too many pending requests or locked.
         sending_future_waker.wake();
     }
-    // TODO: distinguish between unexpected stream termination and expected end of test
-    info!("TSO stream terminated");
-    Ok(())
 }
 
 struct RequestGroup {
