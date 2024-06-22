@@ -230,7 +230,6 @@ impl<PdC: PdClient> Client<PdC> {
     /// # });
     /// ```
     pub async fn get(&self, key: impl Into<Key>) -> Result<Option<Value>> {
-        debug!("invoking raw get request");
         let key = key.into().encode_keyspace(self.keyspace, KeyMode::Raw);
         let request = new_raw_get_request(key, self.cf.clone());
         let plan = crate::request::PlanBuilder::new(self.rpc.clone(), self.keyspace, request)
@@ -238,7 +237,8 @@ impl<PdC: PdClient> Client<PdC> {
             .merge(CollectSingle)
             .post_process_default()
             .plan();
-        plan.execute().await
+        let result = plan.execute().await;
+        result
     }
 
     /// Create a new 'batch get' request.

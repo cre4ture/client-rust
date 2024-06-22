@@ -313,7 +313,25 @@ where
         preserve_region_results: bool,
         e: Error,
     ) -> Result<<Self as Plan>::Result> {
-        debug!("handle grpc error: {:?}", e);
+        log::debug!("try to handle grpc error: {:?}", e);
+        match &e {
+            Error::Io(kind) => match kind.kind() {
+                std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::TimedOut => {
+                    log::info!("=> (1) not handling grpc error: {:?}", e);
+                    return Err(e);
+                }
+                _ => {}
+            }
+            Error::GrpcAPI(status) => match status.code() {
+                tonic::Code::Cancelled => {
+                    log::info!("=> (2) not handling grpc error: {:?}", e);
+                    return Err(e);
+                }
+                _ => {}
+            }
+            _ => {}
+        }
+        log::info!("=> handle grpc error: {:?}", e);
         let ver_id = region_store.region_with_leader.ver_id();
         pd_client.invalidate_region_cache(ver_id).await;
         match backoff.next_delay_duration() {
